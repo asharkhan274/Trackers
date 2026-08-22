@@ -19,6 +19,7 @@ import type {
 } from "@/lib/types";
 
 type Tab = "Dashboard" | "Products" | "Employees" | "Reports";
+type Toast = { id: number; type: "success" | "error" | "info"; message: string };
 const tabs: Array<[string, Tab]> = [
   ["◈", "Dashboard"],
   ["□", "Products"],
@@ -117,21 +118,28 @@ export default function Home() {
   );
   const [reportDate, setReportDate] = useState("");
   const [syncError, setSyncError] = useState("");
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  function notify(message: string, type: Toast["type"] = "success") {
+    const id = new Date().getTime();
+    setToasts((items) => [...items, { id, type, message }]);
+    window.setTimeout(() => setToasts((items) => items.filter((item) => item.id !== id)), 3200);
+  }
 
   useEffect(() => {
     if (!productionCollection) return;
     return onSnapshot(
       productionCollection,
       (snapshot) => setProductions(snapshot.docs.map((item) => item.data() as Production)),
-      (error) => setSyncError(firebaseErrorMessage(error)),
+      (error) => { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); },
     );
   }, []);
   useEffect(() => {
     const unsubProducts = productCollection
-      ? onSnapshot(productCollection, (snapshot) => setProducts(snapshot.docs.map((item) => item.data() as Product)), (error) => setSyncError(firebaseErrorMessage(error)))
+      ? onSnapshot(productCollection, (snapshot) => setProducts(snapshot.docs.map((item) => item.data() as Product)), (error) => { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); })
       : undefined;
     const unsubEmployees = employeeCollection
-      ? onSnapshot(employeeCollection, (snapshot) => setEmployees(snapshot.docs.map((item) => item.data() as Employee)), (error) => setSyncError(firebaseErrorMessage(error)))
+      ? onSnapshot(employeeCollection, (snapshot) => setEmployees(snapshot.docs.map((item) => item.data() as Employee)), (error) => { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); })
       : undefined;
     return () => {
       unsubProducts?.();
@@ -156,7 +164,8 @@ export default function Home() {
       if (db) await setDoc(doc(db, "productions", production.id), production);
       else setProductions((items) => items.map((item) => (item.id === production.id ? production : item)));
       setSyncError("");
-    } catch (error) { setSyncError(firebaseErrorMessage(error)); }
+      notify("Production updated successfully");
+    } catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); }
   }
   async function action(
     production: Production,
@@ -167,7 +176,8 @@ export default function Home() {
         if (db) await deleteDoc(doc(db, "productions", production.id));
         else setProductions((items) => items.filter((item) => item.id !== production.id));
         setSyncError("");
-      } catch (error) { setSyncError(firebaseErrorMessage(error)); }
+        notify("Production deleted successfully");
+      } catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); }
       return;
     }
     const timestamp = new Date().getTime();
@@ -210,6 +220,7 @@ export default function Home() {
     });
     setCompletionTarget(null);
     setCompletionNotes("");
+    notify("Production completed successfully");
   }
   async function createProduction(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -227,8 +238,8 @@ export default function Home() {
       lastPauseTimer: null,
       notes: "",
     };
-    try { if (db) await setDoc(doc(db, "productions", production.id), production); else setProductions((items) => [production, ...items]); setSyncError(""); }
-    catch (error) { setSyncError(firebaseErrorMessage(error)); return; }
+    try { if (db) await setDoc(doc(db, "productions", production.id), production); else setProductions((items) => [production, ...items]); setSyncError(""); notify("Production added to queue"); }
+    catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); return; }
     setNewProduction({ name: "", qty: "1", employee: "", supervisor: "" });
     setShowProductionForm(false);
   }
@@ -239,8 +250,8 @@ export default function Home() {
       name: productName.trim(),
       image: "",
     };
-    try { if (db) await setDoc(doc(db, "products", product.id), product); else setProducts((items) => [product, ...items]); setSyncError(""); }
-    catch (error) { setSyncError(firebaseErrorMessage(error)); return; }
+    try { if (db) await setDoc(doc(db, "products", product.id), product); else setProducts((items) => [product, ...items]); setSyncError(""); notify("Product saved successfully"); }
+    catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); return; }
     setProductName("");
   }
   async function saveEmployee(event: React.FormEvent<HTMLFormElement>) {
@@ -250,8 +261,8 @@ export default function Home() {
       name: employeeName.trim(),
       role: employeeRole,
     };
-    try { if (db) await setDoc(doc(db, "employees", employee.id), employee); else setEmployees((items) => [employee, ...items]); setSyncError(""); }
-    catch (error) { setSyncError(firebaseErrorMessage(error)); return; }
+    try { if (db) await setDoc(doc(db, "employees", employee.id), employee); else setEmployees((items) => [employee, ...items]); setSyncError(""); notify("Employee saved successfully"); }
+    catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); return; }
     setEmployeeName("");
   }
   async function removeRecord(type: "products" | "employees", id: string) {
@@ -260,7 +271,8 @@ export default function Home() {
       else if (type === "products") setProducts((items) => items.filter((item) => item.id !== id));
       else setEmployees((items) => items.filter((item) => item.id !== id));
       setSyncError("");
-    } catch (error) { setSyncError(firebaseErrorMessage(error)); }
+      notify(`${type === "products" ? "Product" : "Employee"} deleted successfully`);
+    } catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); }
   }
   const reportRows = productions.filter(
     (item) =>
@@ -304,6 +316,7 @@ export default function Home() {
       }),
     });
     pdf.save(`ProTrack_Report_${Date.now()}.pdf`);
+    notify("PDF report downloaded successfully");
   }
 
   return (
@@ -794,6 +807,14 @@ export default function Home() {
             </form>
           </div>
         )}
+        <div className="toast-stack" aria-live="polite" aria-atomic="true">
+          {toasts.map((toast) => (
+            <div className={`toast ${toast.type}`} key={toast.id}>
+              <span>{toast.type === "success" ? "✓" : toast.type === "error" ? "!" : "i"}</span>
+              {toast.message}
+            </div>
+          ))}
+        </div>
       </main>
     </div>
   );

@@ -10,7 +10,7 @@ import {
 } from "firebase/firestore";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { db } from "@/lib/firebase";
+import { db, firebaseConfigured } from "@/lib/firebase";
 import type {
   Employee,
   Product,
@@ -111,23 +111,22 @@ export default function Home() {
     "All",
   );
   const [reportDate, setReportDate] = useState("");
+  const [syncError, setSyncError] = useState("");
 
   useEffect(() => {
     if (!productionCollection) return;
-    return onSnapshot(productionCollection, (snapshot) =>
-      setProductions(snapshot.docs.map((item) => item.data() as Production)),
+    return onSnapshot(
+      productionCollection,
+      (snapshot) => setProductions(snapshot.docs.map((item) => item.data() as Production)),
+      () => setSyncError("Firestore access failed. Check your Firebase project and rules."),
     );
   }, []);
   useEffect(() => {
     const unsubProducts = productCollection
-      ? onSnapshot(productCollection, (snapshot) =>
-          setProducts(snapshot.docs.map((item) => item.data() as Product)),
-        )
+      ? onSnapshot(productCollection, (snapshot) => setProducts(snapshot.docs.map((item) => item.data() as Product)), () => setSyncError("Firestore access failed. Check your Firebase project and rules."))
       : undefined;
     const unsubEmployees = employeeCollection
-      ? onSnapshot(employeeCollection, (snapshot) =>
-          setEmployees(snapshot.docs.map((item) => item.data() as Employee)),
-        )
+      ? onSnapshot(employeeCollection, (snapshot) => setEmployees(snapshot.docs.map((item) => item.data() as Employee)), () => setSyncError("Firestore access failed. Check your Firebase project and rules."))
       : undefined;
     return () => {
       unsubProducts?.();
@@ -361,7 +360,7 @@ export default function Home() {
               <div>
                 <span className="metric-label">System</span>
                 <strong className="online">Live</strong>
-                <span className="metric-note">Firestore sync</span>
+                <span className="metric-note">{firebaseConfigured ? syncError || "Firestore sync" : "Firebase setup needed"}</span>
               </div>
             </section>
             <div className="section-heading">

@@ -14,3 +14,6 @@ export type Production = {
   lastPauseTimer: number | null;
   notes: string;
 };
+
+export type Product = { id: string; name: string; image: string };
+export type Employee = { id: string; name: string; role: "Employee" | "Supervisor" };

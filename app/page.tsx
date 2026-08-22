@@ -1,69 +1,74 @@
-import Image from "next/image";
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { collection, deleteDoc, doc, onSnapshot, setDoc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import type { Production, ProductionStatus } from "@/lib/types";
+
+const productionCollection = db ? collection(db, "productions") : null;
+
+const demoProductions: Production[] = [
+  { id: "demo-1", date: new Date().toISOString().slice(0, 10), name: "Assembly batch A", qty: 24, employee: "Awaiting assignment", supervisor: "Awaiting assignment", status: "Pending", activeTime: 0, breakTime: 0, lastStartTimer: null, lastPauseTimer: null, notes: "" },
+  { id: "demo-2", date: new Date().toISOString().slice(0, 10), name: "Precision brackets", qty: 12, employee: "Maya Chen", supervisor: "Jon Bell", status: "Active", activeTime: 28 * 60 * 1000, breakTime: 4 * 60 * 1000, lastStartTimer: Date.now() - 7 * 60 * 1000, lastPauseTimer: null, notes: "" },
+];
+
+function formatTime(milliseconds: number) {
+  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
+  return [Math.floor(seconds / 3600), Math.floor((seconds % 3600) / 60), seconds % 60].map((value) => String(value).padStart(2, "0")).join(":");
+}
+
+function currentTimes(production: Production, now: number) {
+  return {
+    active: production.activeTime + (production.status === "Active" && production.lastStartTimer ? now - production.lastStartTimer : 0),
+    breakTime: production.breakTime + (production.status === "Paused" && production.lastPauseTimer ? now - production.lastPauseTimer : 0),
+  };
+}
 
 export default function Home() {
-  return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            ashar    get sta rted, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
-  );
+  const [productions, setProductions] = useState<Production[]>(demoProductions);
+  const [now, setNow] = useState(Date.now);
+  const [darkMode, setDarkMode] = useState(true);
+
+  useEffect(() => {
+    if (!productionCollection) return;
+    return onSnapshot(productionCollection, (snapshot) => setProductions(snapshot.docs.map((item) => item.data() as Production)));
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const queue = useMemo(() => productions.filter((item) => item.status !== "Completed").sort((a, b) => b.id.localeCompare(a.id)), [productions]);
+
+  async function persist(production: Production) {
+    if (db) await setDoc(doc(db, "productions", production.id), production);
+    else setProductions((items) => items.map((item) => item.id === production.id ? production : item));
+  }
+
+  async function action(production: Production, actionName: "start" | "pause" | "resume" | "delete") {
+    if (actionName === "delete") {
+      if (db) await deleteDoc(doc(db, "productions", production.id));
+      else setProductions((items) => items.filter((item) => item.id !== production.id));
+      return;
+    }
+    const timestamp = new Date().getTime();
+    const next: Production = { ...production };
+    if (actionName === "start") { next.status = "Active"; next.lastStartTimer = timestamp; }
+    if (actionName === "pause") { next.activeTime += timestamp - (next.lastStartTimer ?? timestamp); next.status = "Paused"; next.lastPauseTimer = timestamp; next.lastStartTimer = null; }
+    if (actionName === "resume") { next.breakTime += timestamp - (next.lastPauseTimer ?? timestamp); next.status = "Active"; next.lastStartTimer = timestamp; next.lastPauseTimer = null; }
+    await persist(next);
+  }
+
+  async function complete(production: Production) {
+    const notes = window.prompt("Add completion notes", "")?.trim();
+    if (!notes) return;
+    const times = currentTimes(production, Date.now());
+    await persist({ ...production, activeTime: times.active, breakTime: times.breakTime, status: "Completed" as ProductionStatus, notes, lastStartTimer: null, lastPauseTimer: null });
+  }
+
+  return <div className={darkMode ? "app-shell dark" : "app-shell"}>
+    <aside className="sidebar"><div className="brand"><span className="brand-mark">PT</span><span>ProTrack</span></div><nav className="nav-list" aria-label="Primary navigation">{[["◈", "Dashboard"], ["□", "Products"], ["♙", "Employees"], ["▤", "Reports"]].map(([icon, label], index) => <button className={index === 0 ? "nav-item active" : "nav-item"} key={label}><span>{icon}</span>{label}</button>)}</nav><button className="theme-toggle" onClick={() => setDarkMode((value) => !value)}>{darkMode ? "☼  Light mode" : "◐  Dark mode"}</button></aside>
+    <main className="main-content"><header className="page-header"><div><p className="eyebrow">Operations / Today</p><h1>Live production</h1><p className="muted">Keep every line moving with a clear view of what is happening now.</p></div><button className="primary-button" onClick={() => window.alert("Production creation will connect to the Products and Employees directories next.")}>＋ Start production</button></header><section className="metric-strip"><div><span className="metric-label">Queue</span><strong>{queue.length}</strong><span className="metric-note">open entries</span></div><div><span className="metric-label">Running</span><strong>{queue.filter((item) => item.status === "Active").length}</strong><span className="metric-note">on the floor</span></div><div><span className="metric-label">System</span><strong className="online">Live</strong><span className="metric-note">Firestore sync</span></div></section><div className="section-heading"><div><p className="eyebrow">Production queue</p><h2>Today&apos;s work</h2></div><span className="live-pill"><i /> Live updates</span></div><section className="production-grid">{queue.map((production) => { const times = currentTimes(production, now); return <article className="production-card" key={production.id}><div className="card-top"><span className={`status ${production.status.toLowerCase()}`}>{production.status}</span><span className="date-label">{production.date}</span></div><h3>{production.name}</h3><div className="details"><span>Quantity <b>{production.qty}</b></span><span>Employee <b>{production.employee}</b></span></div><div className="timer-panel"><div><span>Active time</span><strong className="active-time">{formatTime(times.active)}</strong></div><div><span>Break time</span><strong className="break-time">{formatTime(times.breakTime)}</strong></div></div><div className="card-actions">{production.status === "Pending" && <button className="primary-button small" onClick={() => action(production, "start")}>▶ Start timer</button>}{production.status === "Active" && <button className="warning-button" onClick={() => action(production, "pause")}>Ⅱ Pause</button>}{production.status === "Paused" && <button className="primary-button small" onClick={() => action(production, "resume")}>▶ Resume</button>}{production.status !== "Pending" && <button className="success-button" onClick={() => complete(production)}>✓ Complete</button>}{production.status === "Pending" && <button className="icon-button" aria-label="Delete production" onClick={() => action(production, "delete")}>⌫</button>}</div></article>; })}</section></main>
+  </div>;
 }

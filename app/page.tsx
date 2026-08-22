@@ -29,37 +29,6 @@ const tabs: Array<[string, Tab]> = [
 const productionCollection = db ? collection(db, "productions") : null;
 const productCollection = db ? collection(db, "products") : null;
 const employeeCollection = db ? collection(db, "employees") : null;
-const demoProductions: Production[] = [
-  {
-    id: "demo-1",
-    date: new Date().toISOString().slice(0, 10),
-    name: "Assembly batch A",
-    qty: 24,
-    employee: "Awaiting assignment",
-    supervisor: "Awaiting assignment",
-    status: "Pending",
-    activeTime: 0,
-    breakTime: 0,
-    lastStartTimer: null,
-    lastPauseTimer: null,
-    notes: "",
-  },
-  {
-    id: "demo-2",
-    date: new Date().toISOString().slice(0, 10),
-    name: "Precision brackets",
-    qty: 12,
-    employee: "Maya Chen",
-    supervisor: "Jon Bell",
-    status: "Active",
-    activeTime: 28 * 60 * 1000,
-    breakTime: 4 * 60 * 1000,
-    lastStartTimer: Date.now() - 7 * 60 * 1000,
-    lastPauseTimer: null,
-    notes: "",
-  },
-];
-
 function formatTime(milliseconds: number) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
   return [
@@ -93,7 +62,7 @@ function firebaseErrorMessage(error: unknown) {
 
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("Dashboard");
-  const [productions, setProductions] = useState<Production[]>(demoProductions);
+  const [productions, setProductions] = useState<Production[]>([]);
   const [now, setNow] = useState(Date.now);
   const [darkMode, setDarkMode] = useState(true);
   const [showProductionForm, setShowProductionForm] = useState(false);

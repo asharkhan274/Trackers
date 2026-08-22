@@ -85,6 +85,11 @@ function currentTimes(production: Production, now: number) {
   };
 }
 
+function firebaseErrorMessage(error: unknown) {
+  const details = error instanceof Error ? error.message : String(error);
+  return `Firebase error: ${details}`;
+}
+
 export default function Home() {
   const [activeTab, setActiveTab] = useState<Tab>("Dashboard");
   const [productions, setProductions] = useState<Production[]>(demoProductions);
@@ -118,15 +123,15 @@ export default function Home() {
     return onSnapshot(
       productionCollection,
       (snapshot) => setProductions(snapshot.docs.map((item) => item.data() as Production)),
-      () => setSyncError("Firestore access failed. Check your Firebase project and rules."),
+      (error) => setSyncError(firebaseErrorMessage(error)),
     );
   }, []);
   useEffect(() => {
     const unsubProducts = productCollection
-      ? onSnapshot(productCollection, (snapshot) => setProducts(snapshot.docs.map((item) => item.data() as Product)), () => setSyncError("Firestore access failed. Check your Firebase project and rules."))
+      ? onSnapshot(productCollection, (snapshot) => setProducts(snapshot.docs.map((item) => item.data() as Product)), (error) => setSyncError(firebaseErrorMessage(error)))
       : undefined;
     const unsubEmployees = employeeCollection
-      ? onSnapshot(employeeCollection, (snapshot) => setEmployees(snapshot.docs.map((item) => item.data() as Employee)), () => setSyncError("Firestore access failed. Check your Firebase project and rules."))
+      ? onSnapshot(employeeCollection, (snapshot) => setEmployees(snapshot.docs.map((item) => item.data() as Employee)), (error) => setSyncError(firebaseErrorMessage(error)))
       : undefined;
     return () => {
       unsubProducts?.();
@@ -147,22 +152,22 @@ export default function Home() {
   );
 
   async function persist(production: Production) {
-    if (db) await setDoc(doc(db, "productions", production.id), production);
-    else
-      setProductions((items) =>
-        items.map((item) => (item.id === production.id ? production : item)),
-      );
+    try {
+      if (db) await setDoc(doc(db, "productions", production.id), production);
+      else setProductions((items) => items.map((item) => (item.id === production.id ? production : item)));
+      setSyncError("");
+    } catch (error) { setSyncError(firebaseErrorMessage(error)); }
   }
   async function action(
     production: Production,
     actionName: "start" | "pause" | "resume" | "delete",
   ) {
     if (actionName === "delete") {
-      if (db) await deleteDoc(doc(db, "productions", production.id));
-      else
-        setProductions((items) =>
-          items.filter((item) => item.id !== production.id),
-        );
+      try {
+        if (db) await deleteDoc(doc(db, "productions", production.id));
+        else setProductions((items) => items.filter((item) => item.id !== production.id));
+        setSyncError("");
+      } catch (error) { setSyncError(firebaseErrorMessage(error)); }
       return;
     }
     const timestamp = new Date().getTime();
@@ -222,8 +227,8 @@ export default function Home() {
       lastPauseTimer: null,
       notes: "",
     };
-    if (db) await setDoc(doc(db, "productions", production.id), production);
-    else setProductions((items) => [production, ...items]);
+    try { if (db) await setDoc(doc(db, "productions", production.id), production); else setProductions((items) => [production, ...items]); setSyncError(""); }
+    catch (error) { setSyncError(firebaseErrorMessage(error)); return; }
     setNewProduction({ name: "", qty: "1", employee: "", supervisor: "" });
     setShowProductionForm(false);
   }
@@ -234,8 +239,8 @@ export default function Home() {
       name: productName.trim(),
       image: "",
     };
-    if (db) await setDoc(doc(db, "products", product.id), product);
-    else setProducts((items) => [product, ...items]);
+    try { if (db) await setDoc(doc(db, "products", product.id), product); else setProducts((items) => [product, ...items]); setSyncError(""); }
+    catch (error) { setSyncError(firebaseErrorMessage(error)); return; }
     setProductName("");
   }
   async function saveEmployee(event: React.FormEvent<HTMLFormElement>) {
@@ -245,15 +250,17 @@ export default function Home() {
       name: employeeName.trim(),
       role: employeeRole,
     };
-    if (db) await setDoc(doc(db, "employees", employee.id), employee);
-    else setEmployees((items) => [employee, ...items]);
+    try { if (db) await setDoc(doc(db, "employees", employee.id), employee); else setEmployees((items) => [employee, ...items]); setSyncError(""); }
+    catch (error) { setSyncError(firebaseErrorMessage(error)); return; }
     setEmployeeName("");
   }
   async function removeRecord(type: "products" | "employees", id: string) {
-    if (db) await deleteDoc(doc(db, type, id));
-    else if (type === "products")
-      setProducts((items) => items.filter((item) => item.id !== id));
-    else setEmployees((items) => items.filter((item) => item.id !== id));
+    try {
+      if (db) await deleteDoc(doc(db, type, id));
+      else if (type === "products") setProducts((items) => items.filter((item) => item.id !== id));
+      else setEmployees((items) => items.filter((item) => item.id !== id));
+      setSyncError("");
+    } catch (error) { setSyncError(firebaseErrorMessage(error)); }
   }
   const reportRows = productions.filter(
     (item) =>

@@ -243,10 +243,21 @@ export default function Home() {
       notify(`${type === "products" ? "Product" : "Employee"} deleted successfully`);
     } catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); }
   }
-  const reportRows = productions.filter(
-    (item) =>
-      (reportStatus === "All" || item.status === reportStatus) &&
-      (!reportDate || item.date === reportDate),
+  const reportRows = useMemo(
+    () =>
+      productions
+        .filter(
+          (item) =>
+            (reportStatus === "All" || item.status === reportStatus) &&
+            (!reportDate || item.date === reportDate),
+        )
+        .sort((first, second) => {
+          const employeeOrder = first.employee.localeCompare(second.employee, undefined, { sensitivity: "base" });
+          if (employeeOrder !== 0) return employeeOrder;
+          const dateOrder = second.date.localeCompare(first.date);
+          return dateOrder !== 0 ? dateOrder : second.id.localeCompare(first.id);
+        }),
+    [productions, reportDate, reportStatus],
   );
   function exportReport() {
     const pdf = new jsPDF({ orientation: "landscape" });

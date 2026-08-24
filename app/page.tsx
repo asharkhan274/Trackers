@@ -263,37 +263,46 @@ export default function Home() {
     const pdf = new jsPDF({ orientation: "landscape" });
     pdf.setFontSize(18);
     pdf.text("ProTrack Production Report", 14, 18);
-    autoTable(pdf, {
-      startY: 28,
-      head: [
-        [
-          "Date",
-          "Product",
-          "Qty",
-          "Employee",
-          "Supervisor",
-          "Production",
-          "Break",
-          "Total",
-          "Status",
-          "Notes",
-        ],
-      ],
-      body: reportRows.map((item) => {
-        const times = currentTimes(item, Date.now());
-        return [
-          item.date,
-          item.name,
-          item.qty,
-          item.employee,
-          item.supervisor,
-          formatTime(times.active),
-          formatTime(times.breakTime),
-          formatTime(times.active + times.breakTime),
-          item.status,
-          item.notes || "-",
-        ];
-      }),
+    const employeeGroups = reportRows.reduce<Record<string, Production[]>>(
+      (groups, item) => {
+        (groups[item.employee] ??= []).push(item);
+        return groups;
+      },
+      {},
+    );
+    let tableStart = 28;
+    Object.entries(employeeGroups).forEach(([employee, employeeRows]) => {
+      if (tableStart > 270) {
+        pdf.addPage();
+        tableStart = 20;
+      }
+      pdf.setFontSize(13);
+      pdf.setTextColor(49, 92, 157);
+      pdf.text(`Employee: ${employee}`, 14, tableStart);
+      pdf.setTextColor(0, 0, 0);
+      tableStart += 6;
+      let totalActive = 0;
+      let totalBreak = 0;
+      autoTable(pdf, {
+        startY: tableStart,
+        head: [["Date", "Product", "Qty", "Supervisor", "Production", "Break", "Total", "Status", "Notes"]],
+        body: employeeRows.map((item) => {
+          const times = currentTimes(item, Date.now());
+          totalActive += times.active;
+          totalBreak += times.breakTime;
+          return [item.date, item.name, item.qty, item.supervisor, formatTime(times.active), formatTime(times.breakTime), formatTime(times.active + times.breakTime), item.status, item.notes || "-"];
+        }),
+      });
+      tableStart = (pdf as jsPDF & { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 8;
+      if (tableStart > 275) {
+        pdf.addPage();
+        tableStart = 20;
+      }
+      pdf.setFontSize(10);
+      pdf.setTextColor(24, 33, 47);
+      pdf.text(`Total Production Time: ${formatTime(totalActive)}`, 14, tableStart);
+      pdf.text(`Total Break Time: ${formatTime(totalBreak)}`, 105, tableStart);
+      tableStart += 13;
     });
     pdf.save(`ProTrack_Report_${Date.now()}.pdf`);
     notify("PDF report downloaded successfully");

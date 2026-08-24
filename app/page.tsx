@@ -283,6 +283,7 @@ export default function Home() {
       tableStart += 6;
       let totalActive = 0;
       let totalBreak = 0;
+      let totalQuantity = 0;
       autoTable(pdf, {
         startY: tableStart,
         head: [["Date", "Product", "Qty", "Supervisor", "Production", "Break", "Total", "Status", "Notes"]],
@@ -290,6 +291,7 @@ export default function Home() {
           const times = currentTimes(item, Date.now());
           totalActive += times.active;
           totalBreak += times.breakTime;
+          totalQuantity += item.qty;
           return [item.date, item.name, item.qty, item.supervisor, formatTime(times.active), formatTime(times.breakTime), formatTime(times.active + times.breakTime), item.status, item.notes || "-"];
         }),
       });
@@ -300,8 +302,9 @@ export default function Home() {
       }
       pdf.setFontSize(10);
       pdf.setTextColor(24, 33, 47);
-      pdf.text(`Total Production Time: ${formatTime(totalActive)}`, 14, tableStart);
-      pdf.text(`Total Break Time: ${formatTime(totalBreak)}`, 105, tableStart);
+      pdf.text(`Total Production Quantity: ${totalQuantity}`, 14, tableStart);
+      pdf.text(`Total Production Time: ${formatTime(totalActive)}`, 100, tableStart);
+      pdf.text(`Total Break Time: ${formatTime(totalBreak)}`, 205, tableStart);
       tableStart += 13;
     });
     pdf.save(`ProTrack_Report_${Date.now()}.pdf`);

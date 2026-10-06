@@ -1,0 +1,27 @@
+
+> tracker@0.1.0 build
+> next build
+
+Γû▓ Next.js 16.3.2 (Turbopack)
+- Environments: .env.local
+Γ£ô Running next.config.ts took 278ms
+
+  Creating an optimized production build ...
+Γ£ô Compiled successfully in 84s
+  Running TypeScript ...
+  Finished TypeScript in 15.7s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/4) ...
+  Generating static pages using 3 workers (1/4) 
+  Generating static pages using 3 workers (2/4) 
+  Generating static pages using 3 workers (3/4) 
+Γ£ô Generating static pages using 3 workers (4/4) in 2.7s
+  Finalizing page optimization ...
+
+Route (app)
+Γöî Γùï /
+Γöö Γùï /_not-found
+
+
+Γùï  (Static)  prerendered as static content
+

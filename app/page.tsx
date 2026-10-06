@@ -1,13 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import {
-  collection,
-  deleteDoc,
-  doc,
-  onSnapshot,
-  setDoc,
-} from "firebase/firestore";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { db, firebaseConfigured } from "@/lib/firebase";
@@ -26,9 +19,6 @@ const tabs: Array<[string, Tab]> = [
   ["♙", "Employees"],
   ["▤", "Reports"],
 ];
-const productionCollection = db ? collection(db, "productions") : null;
-const productCollection = db ? collection(db, "products") : null;
-const employeeCollection = db ? collection(db, "employees") : null;
 function formatTime(milliseconds: number) {
   const seconds = Math.max(0, Math.floor(milliseconds / 1000));
   return [
@@ -53,6 +43,33 @@ function currentTimes(production: Production, now: number) {
         ? now - production.lastPauseTimer
         : 0),
   };
+}
+
+const STORAGE_KEYS = {
+  productions: "protrack-productions",
+  products: "protrack-products",
+  employees: "protrack-employees",
+} as const;
+
+function readStorageArray<T>(key: string): T[] {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = window.localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeStorageArray<T>(key: string, items: T[]) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(items));
+  } catch {
+    // Ignore browser storage errors.
+  }
 }
 
 function firebaseErrorMessage(error: unknown) {
@@ -96,24 +113,12 @@ export default function Home() {
   }
 
   useEffect(() => {
-    if (!productionCollection) return;
-    return onSnapshot(
-      productionCollection,
-      (snapshot) => setProductions(snapshot.docs.map((item) => item.data() as Production)),
-      (error) => { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); },
-    );
+    setProductions(readStorageArray<Production>(STORAGE_KEYS.productions));
   }, []);
+
   useEffect(() => {
-    const unsubProducts = productCollection
-      ? onSnapshot(productCollection, (snapshot) => setProducts(snapshot.docs.map((item) => item.data() as Product)), (error) => { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); })
-      : undefined;
-    const unsubEmployees = employeeCollection
-      ? onSnapshot(employeeCollection, (snapshot) => setEmployees(snapshot.docs.map((item) => item.data() as Employee)), (error) => { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); })
-      : undefined;
-    return () => {
-      unsubProducts?.();
-      unsubEmployees?.();
-    };
+    setProducts(readStorageArray<Product>(STORAGE_KEYS.products));
+    setEmployees(readStorageArray<Employee>(STORAGE_KEYS.employees));
   }, []);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -130,11 +135,17 @@ export default function Home() {
 
   async function persist(production: Production) {
     try {
-      if (db) await setDoc(doc(db, "productions", production.id), production);
-      else setProductions((items) => items.map((item) => (item.id === production.id ? production : item)));
+      setProductions((items) => {
+        const nextItems = items.map((item) => (item.id === production.id ? production : item));
+        writeStorageArray(STORAGE_KEYS.productions, nextItems);
+        return nextItems;
+      });
       setSyncError("");
       notify("Production updated successfully");
-    } catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); }
+    } catch {
+      setSyncError("Unable to save production locally.");
+      notify("Unable to save production locally.", "error");
+    }
   }
   async function action(
     production: Production,
@@ -142,11 +153,17 @@ export default function Home() {
   ) {
     if (actionName === "delete") {
       try {
-        if (db) await deleteDoc(doc(db, "productions", production.id));
-        else setProductions((items) => items.filter((item) => item.id !== production.id));
+        setProductions((items) => {
+          const nextItems = items.filter((item) => item.id !== production.id);
+          writeStorageArray(STORAGE_KEYS.productions, nextItems);
+          return nextItems;
+        });
         setSyncError("");
         notify("Production deleted successfully");
-      } catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); }
+      } catch {
+        setSyncError("Unable to delete production locally.");
+        notify("Unable to delete production locally.", "error");
+      }
       return;
     }
     const timestamp = new Date().getTime();
@@ -207,8 +224,19 @@ export default function Home() {
       lastPauseTimer: null,
       notes: "",
     };
-    try { if (db) await setDoc(doc(db, "productions", production.id), production); else setProductions((items) => [production, ...items]); setSyncError(""); notify("Production added to queue"); }
-    catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); return; }
+    try {
+      setProductions((items) => {
+        const nextItems = [production, ...items];
+        writeStorageArray(STORAGE_KEYS.productions, nextItems);
+        return nextItems;
+      });
+      setSyncError("");
+      notify("Production added to queue");
+    } catch {
+      setSyncError("Unable to save production locally.");
+      notify("Unable to save production locally.", "error");
+      return;
+    }
     setNewProduction({ name: "", qty: "1", employee: "", supervisor: "" });
     setShowProductionForm(false);
   }
@@ -219,8 +247,19 @@ export default function Home() {
       name: productName.trim(),
       image: "",
     };
-    try { if (db) await setDoc(doc(db, "products", product.id), product); else setProducts((items) => [product, ...items]); setSyncError(""); notify("Product saved successfully"); }
-    catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); return; }
+    try {
+      setProducts((items) => {
+        const nextItems = [product, ...items];
+        writeStorageArray(STORAGE_KEYS.products, nextItems);
+        return nextItems;
+      });
+      setSyncError("");
+      notify("Product saved successfully");
+    } catch {
+      setSyncError("Unable to save product locally.");
+      notify("Unable to save product locally.", "error");
+      return;
+    }
     setProductName("");
   }
   async function saveEmployee(event: React.FormEvent<HTMLFormElement>) {
@@ -230,18 +269,42 @@ export default function Home() {
       name: employeeName.trim(),
       role: employeeRole,
     };
-    try { if (db) await setDoc(doc(db, "employees", employee.id), employee); else setEmployees((items) => [employee, ...items]); setSyncError(""); notify("Employee saved successfully"); }
-    catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); return; }
+    try {
+      setEmployees((items) => {
+        const nextItems = [employee, ...items];
+        writeStorageArray(STORAGE_KEYS.employees, nextItems);
+        return nextItems;
+      });
+      setSyncError("");
+      notify("Employee saved successfully");
+    } catch {
+      setSyncError("Unable to save employee locally.");
+      notify("Unable to save employee locally.", "error");
+      return;
+    }
     setEmployeeName("");
   }
   async function removeRecord(type: "products" | "employees", id: string) {
     try {
-      if (db) await deleteDoc(doc(db, type, id));
-      else if (type === "products") setProducts((items) => items.filter((item) => item.id !== id));
-      else setEmployees((items) => items.filter((item) => item.id !== id));
+      if (type === "products") {
+        setProducts((items) => {
+          const nextItems = items.filter((item) => item.id !== id);
+          writeStorageArray(STORAGE_KEYS.products, nextItems);
+          return nextItems;
+        });
+      } else {
+        setEmployees((items) => {
+          const nextItems = items.filter((item) => item.id !== id);
+          writeStorageArray(STORAGE_KEYS.employees, nextItems);
+          return nextItems;
+        });
+      }
       setSyncError("");
       notify(`${type === "products" ? "Product" : "Employee"} deleted successfully`);
-    } catch (error) { const message = firebaseErrorMessage(error); setSyncError(message); notify(message, "error"); }
+    } catch {
+      setSyncError("Unable to delete record locally.");
+      notify("Unable to delete record locally.", "error");
+    }
   }
   const reportRows = useMemo(
     () =>
@@ -372,7 +435,7 @@ export default function Home() {
               <div>
                 <span className="metric-label">System</span>
                 <strong className="online">Live</strong>
-                <span className="metric-note">{firebaseConfigured ? syncError || "Firestore sync" : "Firebase setup needed"}</span>
+                <span className="metric-note">{firebaseConfigured ? syncError || "Firestore sync" : syncError || "Local storage active"}</span>
               </div>
             </section>
             <div className="section-heading">

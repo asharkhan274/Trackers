@@ -1,30 +1,37 @@
 # ProTrack
 
-Real-time production tracking built with Next.js App Router, Tailwind CSS, and Firebase Cloud Firestore.
+Production tracking dashboard built with Next.js, with Supabase-backed shared
+storage and realtime updates.
 
-## Structure
+## Supabase setup
 
-```text
-app/page.tsx       Client Dashboard and live timer controls
-app/globals.css    Glassmorphism theme and responsive layout
-app/layout.tsx     Poppins font and application metadata
-lib/firebase.ts    Environment-aware Firebase initialization
-lib/types.ts       Firestore production document types
-.env.example       Required Firebase environment variables
-```
+1. Create a Supabase project.
+2. In the Supabase SQL Editor, run [`supabase/schema.sql`](./supabase/schema.sql).
+   This creates the production, product, and employee tables and enables
+   realtime updates.
+3. Copy `.env.example` to `.env.local` and set the Supabase project URL and
+   anon/publishable key from **Project Settings → API**.
+4. Add the same environment variables to the Vercel project's Production
+   environment (and Preview/Development if you use those deployments), then
+   redeploy.
 
-## Firebase setup
+The dashboard uses the Supabase anon key in the browser. The included SQL
+intentionally allows anyone with the app URL to read, insert, update, and delete
+all records without signing in. Do not store confidential or sensitive personal
+information in this configuration. For private team data, replace these
+policies with authenticated access before deployment.
 
-1. Create a Firebase project and enable Cloud Firestore.
-2. Copy `.env.example` to `.env.local`.
-3. Replace the placeholder values with the web app configuration from Firebase Console.
-4. Add Firestore rules appropriate for your authenticated users before deployment.
-
-When configured, the Dashboard subscribes to the `productions` collection with `onSnapshot` and persists timer actions as Firestore documents. Without configuration, it renders an in-memory preview and never writes browser storage.
+When Supabase is configured, the app syncs productions, products, and employees
+between visitors in realtime. If the Supabase tables are empty, the app copies
+existing records from that browser's local storage into Supabase. Without
+Supabase configuration, it continues to use local storage in that browser only.
+All database and storage errors are shown in the dashboard instead of silently
+discarding failed writes.
 
 ## Development
 
 ```bash
+npm install
 npm run dev
 ```
 

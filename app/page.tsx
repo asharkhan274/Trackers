@@ -3,7 +3,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { db, firebaseConfigured } from "@/lib/firebase";
+import {
+  deleteRecord,
+  readRecords,
+  saveRecord,
+  subscribeToRecords,
+  supabaseConfigError,
+  supabaseConfigured,
+} from "@/lib/supabase";
 import type {
   Employee,
   Product,
@@ -45,36 +52,8 @@ function currentTimes(production: Production, now: number) {
   };
 }
 
-const STORAGE_KEYS = {
-  productions: "protrack-productions",
-  products: "protrack-products",
-  employees: "protrack-employees",
-} as const;
-
-function readStorageArray<T>(key: string): T[] {
-  if (typeof window === "undefined") return [];
-
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeStorageArray<T>(key: string, items: T[]) {
-  if (typeof window === "undefined") return;
-
-  try {
-    window.localStorage.setItem(key, JSON.stringify(items));
-  } catch {
-    // Ignore browser storage errors.
-  }
-}
-
-function firebaseErrorMessage(error: unknown) {
-  const details = error instanceof Error ? error.message : String(error);
-  return `Firebase error: ${details}`;
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export default function Home() {
@@ -113,12 +92,36 @@ export default function Home() {
   }
 
   useEffect(() => {
-    setProductions(readStorageArray<Production>(STORAGE_KEYS.productions));
-  }, []);
+    if (supabaseConfigError) return;
 
-  useEffect(() => {
-    setProducts(readStorageArray<Product>(STORAGE_KEYS.products));
-    setEmployees(readStorageArray<Employee>(STORAGE_KEYS.employees));
+    let active = true;
+    const reportLoadError = (error: unknown) => {
+      if (active) setSyncError(`Data sync error: ${errorMessage(error)}`);
+    };
+    const unsubscribe = [
+      subscribeToRecords<Production>("productions", setProductions, reportLoadError),
+      subscribeToRecords<Product>("products", setProducts, reportLoadError),
+      subscribeToRecords<Employee>("employees", setEmployees, reportLoadError),
+    ];
+
+    void Promise.all([
+      readRecords<Production>("productions"),
+      readRecords<Product>("products"),
+      readRecords<Employee>("employees"),
+    ])
+      .then(([loadedProductions, loadedProducts, loadedEmployees]) => {
+        if (!active) return;
+        setProductions(loadedProductions);
+        setProducts(loadedProducts);
+        setEmployees(loadedEmployees);
+        setSyncError("");
+      })
+      .catch(reportLoadError);
+
+    return () => {
+      active = false;
+      unsubscribe.forEach((stop) => stop());
+    };
   }, []);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -133,18 +136,22 @@ export default function Home() {
     [productions],
   );
 
-  async function persist(production: Production) {
+  async function persist(
+    production: Production,
+    successMessage = "Production updated successfully",
+  ) {
     try {
-      setProductions((items) => {
-        const nextItems = items.map((item) => (item.id === production.id ? production : item));
-        writeStorageArray(STORAGE_KEYS.productions, nextItems);
-        return nextItems;
-      });
+      await saveRecord("productions", production);
+      setProductions((items) =>
+        items.map((item) => (item.id === production.id ? production : item)),
+      );
       setSyncError("");
-      notify("Production updated successfully");
-    } catch {
-      setSyncError("Unable to save production locally.");
-      notify("Unable to save production locally.", "error");
+      notify(successMessage);
+      return true;
+    } catch (error) {
+      setSyncError(`Unable to save production: ${errorMessage(error)}`);
+      notify("Unable to save production.", "error");
+      return false;
     }
   }
   async function action(
@@ -153,16 +160,15 @@ export default function Home() {
   ) {
     if (actionName === "delete") {
       try {
-        setProductions((items) => {
-          const nextItems = items.filter((item) => item.id !== production.id);
-          writeStorageArray(STORAGE_KEYS.productions, nextItems);
-          return nextItems;
-        });
+        await deleteRecord("productions", production.id);
+        setProductions((items) =>
+          items.filter((item) => item.id !== production.id),
+        );
         setSyncError("");
         notify("Production deleted successfully");
-      } catch {
-        setSyncError("Unable to delete production locally.");
-        notify("Unable to delete production locally.", "error");
+      } catch (error) {
+        setSyncError(`Unable to delete production: ${errorMessage(error)}`);
+        notify("Unable to delete production.", "error");
       }
       return;
     }
@@ -195,18 +201,21 @@ export default function Home() {
     if (!completionTarget || !completionNotes.trim()) return;
     const production = completionTarget;
     const times = currentTimes(production, Date.now());
-    await persist({
-      ...production,
-      activeTime: times.active,
-      breakTime: times.breakTime,
-      status: "Completed" as ProductionStatus,
-      notes: completionNotes.trim(),
-      lastStartTimer: null,
-      lastPauseTimer: null,
-    });
+    const saved = await persist(
+      {
+        ...production,
+        activeTime: times.active,
+        breakTime: times.breakTime,
+        status: "Completed" as ProductionStatus,
+        notes: completionNotes.trim(),
+        lastStartTimer: null,
+        lastPauseTimer: null,
+      },
+      "Production completed successfully",
+    );
+    if (!saved) return;
     setCompletionTarget(null);
     setCompletionNotes("");
-    notify("Production completed successfully");
   }
   async function createProduction(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -225,16 +234,13 @@ export default function Home() {
       notes: "",
     };
     try {
-      setProductions((items) => {
-        const nextItems = [production, ...items];
-        writeStorageArray(STORAGE_KEYS.productions, nextItems);
-        return nextItems;
-      });
+      await saveRecord("productions", production);
+      setProductions((items) => [production, ...items]);
       setSyncError("");
       notify("Production added to queue");
-    } catch {
-      setSyncError("Unable to save production locally.");
-      notify("Unable to save production locally.", "error");
+    } catch (error) {
+      setSyncError(`Unable to save production: ${errorMessage(error)}`);
+      notify("Unable to save production.", "error");
       return;
     }
     setNewProduction({ name: "", qty: "1", employee: "", supervisor: "" });
@@ -248,16 +254,13 @@ export default function Home() {
       image: "",
     };
     try {
-      setProducts((items) => {
-        const nextItems = [product, ...items];
-        writeStorageArray(STORAGE_KEYS.products, nextItems);
-        return nextItems;
-      });
+      await saveRecord("products", product);
+      setProducts((items) => [product, ...items]);
       setSyncError("");
       notify("Product saved successfully");
-    } catch {
-      setSyncError("Unable to save product locally.");
-      notify("Unable to save product locally.", "error");
+    } catch (error) {
+      setSyncError(`Unable to save product: ${errorMessage(error)}`);
+      notify("Unable to save product.", "error");
       return;
     }
     setProductName("");
@@ -270,16 +273,13 @@ export default function Home() {
       role: employeeRole,
     };
     try {
-      setEmployees((items) => {
-        const nextItems = [employee, ...items];
-        writeStorageArray(STORAGE_KEYS.employees, nextItems);
-        return nextItems;
-      });
+      await saveRecord("employees", employee);
+      setEmployees((items) => [employee, ...items]);
       setSyncError("");
       notify("Employee saved successfully");
-    } catch {
-      setSyncError("Unable to save employee locally.");
-      notify("Unable to save employee locally.", "error");
+    } catch (error) {
+      setSyncError(`Unable to save employee: ${errorMessage(error)}`);
+      notify("Unable to save employee.", "error");
       return;
     }
     setEmployeeName("");
@@ -287,23 +287,17 @@ export default function Home() {
   async function removeRecord(type: "products" | "employees", id: string) {
     try {
       if (type === "products") {
-        setProducts((items) => {
-          const nextItems = items.filter((item) => item.id !== id);
-          writeStorageArray(STORAGE_KEYS.products, nextItems);
-          return nextItems;
-        });
+        await deleteRecord("products", id);
+        setProducts((items) => items.filter((item) => item.id !== id));
       } else {
-        setEmployees((items) => {
-          const nextItems = items.filter((item) => item.id !== id);
-          writeStorageArray(STORAGE_KEYS.employees, nextItems);
-          return nextItems;
-        });
+        await deleteRecord("employees", id);
+        setEmployees((items) => items.filter((item) => item.id !== id));
       }
       setSyncError("");
       notify(`${type === "products" ? "Product" : "Employee"} deleted successfully`);
-    } catch {
-      setSyncError("Unable to delete record locally.");
-      notify("Unable to delete record locally.", "error");
+    } catch (error) {
+      setSyncError(`Unable to delete record: ${errorMessage(error)}`);
+      notify("Unable to delete record.", "error");
     }
   }
   const reportRows = useMemo(
@@ -435,7 +429,13 @@ export default function Home() {
               <div>
                 <span className="metric-label">System</span>
                 <strong className="online">Live</strong>
-                <span className="metric-note">{firebaseConfigured ? syncError || "Firestore sync" : syncError || "Local storage active"}</span>
+                <span className="metric-note">
+                  {supabaseConfigError ||
+                    syncError ||
+                    (supabaseConfigured
+                      ? "Supabase shared sync"
+                      : "Local storage active")}
+                </span>
               </div>
             </section>
             <div className="section-heading">

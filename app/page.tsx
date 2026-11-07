@@ -7,6 +7,7 @@ import {
   deleteRecord,
   readRecords,
   saveRecord,
+  saveProductionEdit,
   subscribeToRecords,
   supabaseConfigError,
   supabaseConfigured,
@@ -62,6 +63,9 @@ export default function Home() {
   const [now, setNow] = useState(Date.now);
   const [darkMode, setDarkMode] = useState(true);
   const [showProductionForm, setShowProductionForm] = useState(false);
+  const [editingProduction, setEditingProduction] = useState<Production | null>(
+    null,
+  );
   const [newProduction, setNewProduction] = useState({
     name: "",
     qty: "1",
@@ -246,6 +250,68 @@ export default function Home() {
     setNewProduction({ name: "", qty: "1", employee: "", supervisor: "" });
     setShowProductionForm(false);
   }
+  async function editProduction(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!editingProduction) return;
+
+    const current = productions.find(
+      (item) => item.id === editingProduction.id,
+    );
+    if (!current || current.status === "Completed") {
+      notify("Completed productions can no longer be edited.", "error");
+      setEditingProduction(null);
+      setShowProductionForm(false);
+      return;
+    }
+
+    const production: Production = {
+      ...current,
+      name: newProduction.name.trim(),
+      qty: Number(newProduction.qty),
+      employee: newProduction.employee.trim() || "Unassigned",
+      supervisor: newProduction.supervisor.trim() || "Unassigned",
+    };
+
+    try {
+      const saved = await saveProductionEdit(production);
+      if (!saved) {
+        notify("Completed productions can no longer be edited.", "error");
+        setEditingProduction(null);
+        setShowProductionForm(false);
+        return;
+      }
+      setProductions((items) =>
+        items.map((item) => (item.id === production.id ? production : item)),
+      );
+      setSyncError("");
+      notify("Production updated successfully");
+      setEditingProduction(null);
+      setNewProduction({ name: "", qty: "1", employee: "", supervisor: "" });
+      setShowProductionForm(false);
+    } catch (error) {
+      setSyncError(`Unable to edit production: ${errorMessage(error)}`);
+      notify("Unable to edit production.", "error");
+    }
+  }
+  function openProductionForm(production?: Production) {
+    if (production?.status === "Completed") return;
+    setEditingProduction(production ?? null);
+    setNewProduction(
+      production
+        ? {
+            name: production.name,
+            qty: String(production.qty),
+            employee: production.employee,
+            supervisor: production.supervisor,
+          }
+        : { name: "", qty: "1", employee: "", supervisor: "" },
+    );
+    setShowProductionForm(true);
+  }
+  function closeProductionForm() {
+    setShowProductionForm(false);
+    setEditingProduction(null);
+  }
   async function saveProduct(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const product: Product = {
@@ -408,7 +474,7 @@ export default function Home() {
               </div>
               <button
                 className="primary-button"
-                onClick={() => setShowProductionForm(true)}
+                onClick={() => openProductionForm()}
               >
                 ＋ Start production
               </button>
@@ -516,6 +582,12 @@ export default function Home() {
                           ✓ Complete
                         </button>
                       )}
+                      <button
+                        className="secondary-button"
+                        onClick={() => openProductionForm(production)}
+                      >
+                        Edit
+                      </button>
                       {production.status === "Pending" && (
                         <button
                           className="icon-button"
@@ -702,23 +774,27 @@ export default function Home() {
           <div
             className="modal-backdrop"
             role="presentation"
-            onMouseDown={() => setShowProductionForm(false)}
+            onMouseDown={closeProductionForm}
           >
             <form
               className="production-form"
-              onSubmit={createProduction}
+              onSubmit={editingProduction ? editProduction : createProduction}
               onMouseDown={(event) => event.stopPropagation()}
             >
               <div className="form-heading">
                 <div>
-                  <p className="eyebrow">New entry</p>
-                  <h2>Start production</h2>
+                  <p className="eyebrow">
+                    {editingProduction ? "Edit entry" : "New entry"}
+                  </p>
+                  <h2>
+                    {editingProduction ? "Edit production" : "Start production"}
+                  </h2>
                 </div>
                 <button
                   type="button"
                   className="icon-button"
                   aria-label="Close form"
-                  onClick={() => setShowProductionForm(false)}
+                  onClick={closeProductionForm}
                 >
                   ×
                 </button>
@@ -803,7 +879,7 @@ export default function Home() {
                   ))}
               </datalist>
               <button className="primary-button" type="submit">
-                Add to queue
+                {editingProduction ? "Save changes" : "Add to queue"}
               </button>
             </form>
           </div>

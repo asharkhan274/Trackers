@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import type { Production } from "./types";
 
 export type RecordTable = "productions" | "products" | "employees";
 
@@ -95,6 +96,30 @@ export async function saveRecord<T extends { id: string }>(
     ...records.filter((item) => item.id !== record.id),
   ];
   writeLocalRecords(table, updatedRecords);
+}
+
+export async function saveProductionEdit(record: Production) {
+  assertValidConfiguration();
+  if (supabaseConfigured) {
+    const { data, error } = await requireSupabase()
+      .from("productions")
+      .update({ record })
+      .eq("id", record.id)
+      .neq("record->>status", "Completed")
+      .select("id");
+    if (error) throw error;
+    return Boolean(data?.length);
+  }
+
+  const records = readLocalRecords<Production>("productions");
+  const current = records.find((item) => item.id === record.id);
+  if (!current || current.status === "Completed") return false;
+
+  writeLocalRecords(
+    "productions",
+    records.map((item) => (item.id === record.id ? record : item)),
+  );
+  return true;
 }
 
 export async function deleteRecord(table: RecordTable, id: string) {

@@ -85,7 +85,8 @@ export default function Home() {
   const [reportStatus, setReportStatus] = useState<ProductionStatus | "All">(
     "All",
   );
-  const [reportDate, setReportDate] = useState("");
+  const [reportStartDate, setReportStartDate] = useState("");
+  const [reportEndDate, setReportEndDate] = useState("");
   const [syncError, setSyncError] = useState("");
   const [toasts, setToasts] = useState<Toast[]>([]);
 
@@ -372,7 +373,8 @@ export default function Home() {
         .filter(
           (item) =>
             (reportStatus === "All" || item.status === reportStatus) &&
-            (!reportDate || item.date === reportDate),
+            (!reportStartDate || item.date >= reportStartDate) &&
+            (!reportEndDate || item.date <= reportEndDate),
         )
         .sort((first, second) => {
           const employeeOrder = first.employee.localeCompare(second.employee, undefined, { sensitivity: "base" });
@@ -380,12 +382,21 @@ export default function Home() {
           const dateOrder = second.date.localeCompare(first.date);
           return dateOrder !== 0 ? dateOrder : second.id.localeCompare(first.id);
         }),
-    [productions, reportDate, reportStatus],
+    [productions, reportEndDate, reportStartDate, reportStatus],
   );
+  const invalidReportRange =
+    Boolean(reportStartDate && reportEndDate) &&
+    reportStartDate > reportEndDate;
   function exportReport() {
     const pdf = new jsPDF({ orientation: "landscape" });
     pdf.setFontSize(18);
     pdf.text("ProTrack Production Report", 14, 18);
+    pdf.setFontSize(10);
+    pdf.text(
+      `Date range: ${reportStartDate || "Any"} to ${reportEndDate || "Any"}`,
+      14,
+      25,
+    );
     const employeeGroups = reportRows.reduce<Record<string, Production[]>>(
       (groups, item) => {
         (groups[item.employee] ??= []).push(item);
@@ -393,7 +404,7 @@ export default function Home() {
       },
       {},
     );
-    let tableStart = 28;
+    let tableStart = 34;
     Object.entries(employeeGroups).forEach(([employee, employeeRows]) => {
       if (tableStart > 270) {
         pdf.addPage();
@@ -702,15 +713,28 @@ export default function Home() {
                   Filter production history and export a landscape PDF.
                 </p>
               </div>
-              <button className="primary-button" onClick={exportReport}>
+              <button
+                className="primary-button"
+                onClick={exportReport}
+                disabled={invalidReportRange}
+              >
                 ↓ Export PDF
               </button>
             </div>
             <div className="inline-form report-filters">
               <input
                 type="date"
-                value={reportDate}
-                onChange={(event) => setReportDate(event.target.value)}
+                aria-label="From date"
+                max={reportEndDate || undefined}
+                value={reportStartDate}
+                onChange={(event) => setReportStartDate(event.target.value)}
+              />
+              <input
+                type="date"
+                aria-label="To date"
+                min={reportStartDate || undefined}
+                value={reportEndDate}
+                onChange={(event) => setReportEndDate(event.target.value)}
               />
               <select
                 value={reportStatus}
@@ -727,6 +751,11 @@ export default function Home() {
                 <option>Completed</option>
               </select>
             </div>
+            {invalidReportRange && (
+              <p className="muted" role="alert">
+                From date must be on or before the to date.
+              </p>
+            )}
             <div className="report-table-wrap">
               <table>
                 <thead>
